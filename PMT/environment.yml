@@ -1,0 +1,11 @@
+#this is for binder
+name: PMT-env
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - pip
+  - pip:
+    - bs4
+    - bokeh
+    - pandas
