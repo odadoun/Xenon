@@ -11,4 +11,5 @@ dependencies:
     - bokeh
     - pandas
     - rise  
-    - uproot  
+    - uproot
+    - matplotlib  
