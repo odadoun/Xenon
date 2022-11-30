@@ -1,11 +1,13 @@
 #this is for binder
-name: PMT-env
+name: Xenon-Large-Env
 channels:
   - conda-forge
 dependencies:
   - python
+  - numpy
   - pip
   - pip:
     - bs4
     - bokeh
     - pandas
+    - rise  
