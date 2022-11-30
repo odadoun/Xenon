@@ -1,3 +1,8 @@
+# Olivier Dadoun dadoun@in2p3.fr
+# PMT Xenon display (only for TPC)
+# self depend program use
+# pmt_positions_xenonnt.csv file from straxen
+# December 2022
 import numpy as np
 from bokeh.io import curdoc, show
 from bokeh.models import Circle, ColumnDataSource, Grid, LinearAxis, Plot
@@ -11,27 +16,37 @@ from bokeh.models import Range1d
 import copy
 import pandas as pd
 output_notebook(hide_banner=True)
-#curdoc().theme = 'dark_minimal'
+curdoc().theme = 'dark_minimal'
 class Display:
     def __init__(self):
+        '''
+        Init some variable
+        define size of the bokeh figure
+        '''
         self.position = self.positionPMT()
         offset = 10
         mini,maxi = self.position.x.min()-offset,self.position.x.max()+offset
         self.shiftupdown = 150
-        self.fig = figure(width=600, height=400,x_range=[mini,maxi+self.shiftupdown],y_range=[mini,maxi])
+        self.fig = figure(width=600, height=300,x_range=[mini,maxi+self.shiftupdown],y_range=[mini,maxi])
         self.fig.axis.visible = False
         self.fig.grid.visible = False
 
     def positionPMT(self):
-        #pmtpd = pd.DataFrame(columns=['i','array','x','y'])
+        '''
+        Just a csv parser, use local pmt_positions_xenonnt.csv
+        Can use file from a web site
+        Define a default PMT color
+        '''
         pmtpd=pd.read_csv("pmt_positions_xenonnt.csv",header=1)
-        pmtpd['color']='grey'
+        pmtpd['color']='black'
         pmtpd = pmtpd.rename(columns={'i':"PMTi"})
         return pmtpd
 
     @staticmethod
     def irgb_string_from_irgb(irgb):
-        '''Convert a displayable irgb color (0-255) into a hex string.'''
+        '''
+        Convert a displayable irgb color (0-255) into a hex string
+        '''
         if isinstance(irgb[0],float):
             irgb[0]=int(255*irgb[0])
             irgb[1]=int(255*irgb[1])
@@ -43,7 +58,12 @@ class Display:
         irgb_string = '#%02X%02X%02X' % (irgb[0], irgb[1], irgb[2])
         return irgb_string
 
-    def placePMT(self,pmtenum = None,i=None,color=None):
+    def placePMT(self,pmtenum = None, i = None, color = None):
+        '''
+        Place the PMT on the bokeh figure
+        xdisplayed is a meaningless variable - use only for the display
+        return a bokeh figure and a ColumnDataSource (Bokeh format)
+        '''
         pmttmp = self.positionPMT().set_index('PMTi')
         pmttmp['xdisplayed'] = pmttmp['x']
         pmttmp.loc[pmttmp.index>252,'xdisplayed'] = pmttmp['xdisplayed']+self.shiftupdown
@@ -62,17 +82,22 @@ class Display:
         self.fig.add_tools(hover_tool)
         return self.fig, src
 
-    #def updatecolor(self,pd=None)
-    def showPMT(self,pmtdico=None,i=None,color=None):
+    def showPMT(self, pmtdico = None):
+        '''
+        Use for PMT location purpose
+        Can take a Pandas as an input
+        Here the callback is defined (JS stuff for HMTL slider interaction)
+        return a bokeh figure
+        '''
         if pmtdico:
-            draw=self.placePMT(pmtdico)
+            draw = self.placePMT(pmtdico)
         else:
-            draw=self.placePMT()
+            draw = self.placePMT()
 
         pmt_slider = Slider(start=0, end=self.position.PMTi.max(), value=1, step=1, title="PMT",name='sliderpmt')
         pmt_input = TextInput(value="", title="PMT n°:",name='textpmt')
 
-        src=draw[1]
+        src = draw[1]
         thecallback = CustomJS(args=dict(source=src, slidervalue=pmt_slider,textvalue=pmt_input),
         code = """
             const data = source.data;
@@ -87,7 +112,7 @@ class Display:
 
             var col = data['color']
             for (let i = 0; i < col.length; i++) {
-                col[i] = 'grey'
+                col[i] = 'black'
             }
             col[pmti] = 'red';
             source.change.emit();
@@ -97,15 +122,12 @@ class Display:
         layout = column(draw[0],row(pmt_slider,pmt_input))
         show(layout)
 
-    @staticmethod
-    def retrieveij(strhistname):
-        strhistname=strhistname.replace(';1','')
-        strhistname=strhistname.replace('hist','')
-        i=strhistname[:strhistname.find('_')]
-        j=strhistname[strhistname.find('_')+1:]
-        return i,j
-
-    def updatePMT(self,pmtpd=None,i=None,j=None,color=None):
+    def updatePMT(self,pmtpd = None):
+        '''
+        Can take a Pandas as an input
+        Here the callback is defined (JS stuff for HMTL slider interaction)
+        return a bokeh figure
+        '''
         if pmtpd is None:
             show(self.fig)
         else:
@@ -133,10 +155,21 @@ class Display:
 
                     for(var key in dic_color) {
                        newcolor[key] = dic_color[key]
-                      // newpmti['key'] = key;//dic_color[key];
                     }
                     sourcedis.change.emit();
                 """)
                 ind_slider.js_on_change('value', thecallback)
                 layout = column(draw[0],row(ind_slider))
             show(layout)
+
+
+    @staticmethod
+    def retrieveij(strhistname):
+        '''
+        String manipulation purpose
+        '''
+        strhistname=strhistname.replace(';1','')
+        strhistname=strhistname.replace('hist','')
+        i=strhistname[:strhistname.find('_')]
+        j=strhistname[strhistname.find('_')+1:]
+        return i,j
