@@ -23,8 +23,8 @@ output_notebook(hide_banner=True)
 class Display:
     def __init__(self):
         '''
-        Init some variable
-        define size of the bokeh figure
+            Init some variables
+            define size of the bokeh figure
         '''
         self.position = self.positionPMT()
         offset = 10
@@ -40,17 +40,21 @@ class Display:
         self.fig.axis.visible = False
         self.fig.grid.visible = False
         self.colormap = LinearColorMapper(palette = 'Viridis256',low=0,high=50)
+        self.colorbardrawn = False
 
     def drawTPCradius(self):
-         self.fig.circle(x=0, y=0, color=None,radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3)
-         self.fig.circle(x=self.PMTshiftupdown, y=0, color=None,radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3)
-         return self.fig
+        '''
+            Draw circle of Rtpc radius which represent the TPC radius delimation
+        '''
+        self.fig.circle(x=0, y=0, color=None,radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3)
+        self.fig.circle(x=self.PMTshiftupdown, y=0, color=None,radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3)
+        return self.fig
 
     def positionPMT(self):
         '''
-        Just a csv parser, use local pmt_positions_xenonnt.csv
-        Can use file from a web site
-        Define a default PMT color
+            Just a csv parser, use local pmt_positions_xenonnt.csv
+            Can use file from a web site
+            Define a default PMT color
         '''
         pmtpd=pd.read_csv("pmt_positions_xenonnt.csv",header=1)
         pmtpd['color']='grey'
@@ -59,9 +63,9 @@ class Display:
 
     def placePMT(self,pmtenum = None, i = None, color = None):
         '''
-        Place the PMT on the bokeh figure
-        xdisplayed is a meaningless variable - use only for the display
-        return a bokeh figure and a ColumnDataSource (Bokeh format)
+            Place the PMT on the bokeh figure
+            xdisplayed is a meaningless variable - use only for the display
+            return a bokeh figure and a ColumnDataSource (Bokeh format)
         '''
         self.drawTPCradius()
         pmttmp = self.positionPMT().set_index('PMTi')
@@ -86,17 +90,16 @@ class Display:
             color = 'color'
         src = ColumnDataSource(pmttmp)
         circ = self.fig.circle(x='xdisplayed', y='y', color = color, radius=self.Rpmt, alpha=1,source=src,line_color='black')
-
         hover_tool = HoverTool(tooltips=[("index", "$index"), ("(x, y)", "(@x, @y)"),("hits","@hits")],renderers=[circ])
         self.fig.add_tools(hover_tool)
-        return self.fig, src
+        return src
 
     def showPMT(self, pmtdico = None):
         '''
-        Use for PMT location purpose
-        Can take a Pandas as an input
-        Here the callback is defined (JS stuff for HMTL slider interaction)
-        return a bokeh figure
+            Use for PMT location purpose
+            Can take a Pandas as an input
+            Here the callback is defined (JS stuff for HMTL slider interaction)
+            return a bokeh figure
         '''
         if pmtdico:
             draw = self.placePMT(pmtdico)
@@ -104,7 +107,7 @@ class Display:
             draw = self.placePMT()
         pmt_slider = Slider(start=0, end=self.position.PMTi.max(), value=1, step=1, title="PMT",name='sliderpmt')
         pmt_input = TextInput(value="", title="PMT n°:",name='textpmt')
-        src = draw[1]
+        src = draw
         thecallback = CustomJS(args=dict(source=src, slidervalue=pmt_slider,textvalue=pmt_input),
         code = """
             const data = source.data;
@@ -124,15 +127,15 @@ class Display:
         """)
         pmt_slider.js_on_change('value', thecallback)
         pmt_input.js_on_change('value', thecallback)
-        layout = column(draw[0],row(pmt_slider,pmt_input))
+        layout = column(self.fig,row(pmt_slider,pmt_input))
         show(layout)
 
     def updatePMT(self,pmtpd = None):
         '''
-        Can take a Pandas as an input
-        Columns are ['i', 'j', 'hits'] and the index is the PMT number
-        Here the callback is defined (JS stuff for HMTL slider interaction)
-        return a bokeh figure
+            Can take a Pandas as an input
+            Columns are ['i', 'j', 'hits'] and the index is the PMT number
+            Here the callback is defined (JS stuff for HMTL slider interaction)
+            return a bokeh figure
         '''
         color_bar = ColorBar(color_mapper = self.colormap, label_standoff = 14,location = (0,0),ticker=BasicTicker())
         if pmtpd is None:
@@ -141,8 +144,8 @@ class Display:
             src = ColumnDataSource(pmtpd)
             pmtdisplayed = pmtpd.head(1)
             draw = self.placePMT(pmtdisplayed)
-            srcdisplayed = draw[1]
-            layout = draw[0]
+            srcdisplayed = draw
+            layout = self.fig
             if pmtpd.index.min() != pmtpd.index.max():
                 ind_slider = Slider(start=pmtpd.index.min(), end=pmtpd.index.max(), value=pmtpd.index.min(), step=1, title="i")
                 thecallback = CustomJS(args=dict(source = src, sourcedis = srcdisplayed,
@@ -150,14 +153,11 @@ class Display:
                 code = """
                     var datain = source.data;
                     var hitsin = datain['hits'];
-
                     var newhits = [];
                     var newpmti = [];
-
                     var dataout  = sourcedis.data;
                     newhits = dataout['hits'];
                     newpmti = dataout['PMTi'];
-
                     var position_index = ind.value;
                     var dic_hits = hitsin[position_index-ind.start];
                     var low = mappy.low;
@@ -168,37 +168,12 @@ class Display:
                     mappy.color_mapper.low = Math.min.apply(Math,newhits);
                     mappy.color_mapper.high = Math.max.apply(Math,newhits);
                     sourcedis.change.emit();
+                    console.log(newhits);
                 """)
                 ind_slider.js_on_change('value', thecallback)
-                if color_bar:
-                    draw[0].plot_width=700
-                    draw[0].add_layout(color_bar, 'left')
-                layout = column(draw[0],ind_slider)
+                if not self.colorbardrawn: # avoid multiple colorbar
+                    self.fig.plot_width=700
+                    self.fig.add_layout(color_bar, 'left')
+                    self.colorbardrawn = True
+                layout = column(self.fig,ind_slider)
             show(layout)
-
-    @staticmethod
-    def irgb_string_from_irgb(irgb):
-        '''
-        Convert a displayable irgb color (0-255) into a hex string
-        '''
-        if isinstance(irgb[0],float):
-            irgb[0]=int(255*irgb[0])
-            irgb[1]=int(255*irgb[1])
-            irgb[2]=int(255*irgb[2])
-        # ensure that values are in the range 0-255
-        for index in range (0,3):
-            irgb [index] = min (255, max (0, irgb [index]))
-        # convert to hex string
-        irgb_string = '#%02X%02X%02X' % (irgb[0], irgb[1], irgb[2])
-        return irgb_string
-
-    @staticmethod
-    def retrieveij(strhistname):
-        '''
-        String manipulation purpose
-        '''
-        strhistname=strhistname.replace(';1','')
-        strhistname=strhistname.replace('hist','')
-        i=strhistname[:strhistname.find('_')]
-        j=strhistname[strhistname.find('_')+1:]
-        return i,j
