@@ -1,6 +1,6 @@
 # Olivier Dadoun dadoun@in2p3.fr
 # PMT Xenon display (only for TPC)
-# PMT Bokeh display, self dependant program
+# Standalone PMT Bokeh display
 # pmt_positions_xenonnt.csv file from straxen
 # December 2022
 import numpy as np
