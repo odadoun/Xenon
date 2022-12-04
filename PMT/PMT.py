@@ -8,12 +8,11 @@ from bokeh.io import curdoc, show
 from bokeh.models import Circle, ColumnDataSource, Grid, LinearAxis, Plot
 from bokeh.layouts import row, column, gridplot
 from bokeh.plotting import figure, output_file, show
-from bokeh.models import HoverTool, BasicTicker
 from bokeh.io import show, output_notebook
 from bokeh.models import CustomJS, Slider
 from bokeh.models.widgets import TextInput
 from bokeh.models import Range1d
-from bokeh.models import ColorBar, LogColorMapper, LinearColorMapper
+from bokeh.models import HoverTool, ColorBar, LinearColorMapper, BasicTicker, LogColorMapper, LogTicker
 from bokeh.transform import transform
 from bokeh.palettes import Spectral5, Viridis256
 import copy
@@ -21,11 +20,12 @@ import pandas as pd
 output_notebook(hide_banner=True)
 #curdoc().theme = 'dark_minimal'
 class Display:
-    def __init__(self):
+    def __init__(self,scale='Linear'):
         '''
             Init some variables
             define size of the bokeh figure
         '''
+        self.scale = scale
         self.position = self.positionPMT()
         offset = 10
         self.Rpmt = 3*2.54/2 #3" diameter
@@ -40,6 +40,10 @@ class Display:
         self.fig.axis.visible = False
         self.fig.grid.visible = False
         self.colormap = LinearColorMapper(palette = 'Viridis256',low=0,high=50)
+        if scale=='Log':
+            self.colormap = LogColorMapper(palette = 'Viridis256',low=1e-4,high=50)
+        if scale not in ['Log','Linear']:
+            print(" What do you mean exactly by " + scale + " ?")
         self.colorbardrawn = False
 
     def drawTPCradius(self):
@@ -76,10 +80,21 @@ class Display:
         if not pmtenum.empty:
             # format index, i,j, {PM1:hits,PMT2:hits,...}
             ind=pmtenum.index.values[0]
-            pmtenum = pd.DataFrame(list(pmtenum.head(1)['hits'].values[0].items()),columns=['PMTi','hits'])
+            if 'xextra' and 'yextra' in pmtenum.columns:
+                x = pmtenum.xextra.values[0]
+                y = pmtenum.yextra.values[0]
+            first = list(pmtenum.head(1)['hits'].values[0].items())
+            if self.scale=='Log':
+                first = list(({ k : (np.log10(v) if v != 0. else 2)\
+                        for k,v in pmtenum.head(1)['hits'].values[0].items()}).items())
+            pmtenum = pd.DataFrame(first,columns=['PMTi','hits'])
             pmtenum['positionij']=len(pmtenum)*[ind]
+            if 'xextra' and 'yextra' in pmtenum.columns:
+                pmtenum['xextra'] = len(pmtenum)*[x]
+                pmtenum['yextra'] = len(pmtenum)*[y]
             self.colormap.low = pmtenum.hits.min()
             self.colormap.high = pmtenum.hits.max()
+
             pmttmp = pmttmp.drop(columns=['color'])
             pmttmp = pd.merge(pmttmp,pmtenum, on='PMTi')
         if 'hits' in pmttmp.columns:
@@ -137,7 +152,11 @@ class Display:
             Here the callback is defined (JS stuff for HMTL slider interaction)
             return a bokeh figure
         '''
-        color_bar = ColorBar(color_mapper = self.colormap, label_standoff = 14,location = (0,0),ticker=BasicTicker())
+        ticker = BasicTicker()
+        if self.scale=='Log':
+            ticker = LogTicker()
+        color_bar = ColorBar(color_mapper = self.colormap, label_standoff = 14,\
+                                location = (0,0), ticker = ticker)
         if pmtpd is None:
             show(self.fig)
         else:
@@ -146,13 +165,24 @@ class Display:
             draw = self.placePMT(pmtdisplayed)
             srcdisplayed = draw
             layout = self.fig
+            srcposition = ColumnDataSource()
+            extra = 'notused'
+            if 'xextra' and 'yextra' in pmtpd.columns:
+                srcposition = ColumnDataSource(data={'xextra':[pmtdisplayed['xextra'].values[0]],\
+                                                 'yextra':[pmtdisplayed['yextra'].values[0]]})
+                self.fig.cross(x='xextra', y='yextra',size=20, color='red',source=srcposition,line_width=2)
+                extra = 'extra'
             if pmtpd.index.min() != pmtpd.index.max():
                 ind_slider = Slider(start=pmtpd.index.min(), end=pmtpd.index.max(), value=pmtpd.index.min(), step=1, title="i")
                 thecallback = CustomJS(args=dict(source = src, sourcedis = srcdisplayed,
-                ind=ind_slider, mappy = color_bar),
+                ind = ind_slider, mappy = color_bar, srcpos = srcposition, cursorposition = extra, scale = self.scale),
                 code = """
                     var datain = source.data;
                     var hitsin = datain['hits'];
+                    if(cursorposition === 'extra'){
+                    var xin = datain['xextra'];
+                    var yin = datain['yextra'];
+                    }
                     var newhits = [];
                     var newpmti = [];
                     var dataout  = sourcedis.data;
@@ -162,13 +192,28 @@ class Display:
                     var dic_hits = hitsin[position_index-ind.start];
                     var low = mappy.low;
                     var high = mappy.high;
-                    for(var key in dic_hits) {
-                       newhits[key] = dic_hits[key];
+
+                    var pos = srcpos.data;
+                    if(cursorposition === 'extra'){
+                    var x = pos['xextra'];
+                    var y = pos['yextra'];
+                    x[0] = xin[position_index-ind.start];
+                    y[0] = yin[position_index-ind.start];
                     }
+                    for(var key in dic_hits) {
+                     if(scale==='Log'){
+                       if(dic_hits[key]<=0)
+                        dic_hits[key]=1e-4;
+                        newhits[key] = Math.log10(dic_hits[key]);
+                      }
+                      else  newhits[key] = dic_hits[key];
+                    }
+                    if(scale==='Linear'){
                     mappy.color_mapper.low = Math.min.apply(Math,newhits);
                     mappy.color_mapper.high = Math.max.apply(Math,newhits);
+                    }
                     sourcedis.change.emit();
-                    console.log(newhits);
+                    srcpos.change.emit();
                 """)
                 ind_slider.js_on_change('value', thecallback)
                 if not self.colorbardrawn: # avoid multiple colorbar
