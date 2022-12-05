@@ -84,10 +84,6 @@ class Display:
                 x = pmtenum.xextra.values[0]
                 y = pmtenum.yextra.values[0]
             first = list(pmtenum.head(1)['hits'].values[0].items())
-            if self.scale == 'Log':
-                first = list(({ k : (np.log10(v) if v > 0. else 1e-4)\
-                        for k,v in pmtenum.head(1)['hits'].values[0].items()}).items())
-
             pmtenum = pd.DataFrame(first,columns=['PMTi','hits'])
             pmtenum['positionij']=len(pmtenum)*[ind]
             if 'xextra' and 'yextra' in pmtenum.columns:
@@ -176,7 +172,7 @@ class Display:
             if pmtpd.index.min() != pmtpd.index.max():
                 ind_slider = Slider(start=pmtpd.index.min(), end=pmtpd.index.max(), value=pmtpd.index.min(), step=1, title="i")
                 thecallback = CustomJS(args=dict(source = src, sourcedis = srcdisplayed,
-                ind = ind_slider, mappy = color_bar, srcpos = srcposition, cursorposition = extra, scale = self.scale),
+                ind = ind_slider, mappy = color_bar, srcpos = srcposition, cursorposition = extra),
                 code = """
                     var datain = source.data;
                     var hitsin = datain['hits'];
@@ -196,22 +192,15 @@ class Display:
 
                     var pos = srcpos.data;
                     if(cursorposition === 'extra'){
-                    var x = pos['xextra'];
-                    var y = pos['yextra'];
-                    x[0] = xin[position_index-ind.start];
-                    y[0] = yin[position_index-ind.start];
+                        var x = pos['xextra'];
+                        var y = pos['yextra'];
+                        x[0] = xin[position_index-ind.start];
+                        y[0] = yin[position_index-ind.start];
                     }
                     for(var key in dic_hits) {
-                     if(scale==='Log'){
-                       if(dic_hits[key]<=0)
-                        dic_hits[key]=1e-4;
-                        newhits[key] = Math.log10(dic_hits[key]);
-                      }
-                      else  newhits[key] = dic_hits[key];
-                    }
-                    if(scale==='Linear'){
-                    mappy.color_mapper.low = Math.min.apply(Math,newhits);
-                    mappy.color_mapper.high = Math.max.apply(Math,newhits);
+                        newhits[key] = dic_hits[key];
+                        mappy.color_mapper.low = Math.min.apply(Math,newhits);
+                        mappy.color_mapper.high = Math.max.apply(Math,newhits);
                     }
                     sourcedis.change.emit();
                     srcpos.change.emit();
