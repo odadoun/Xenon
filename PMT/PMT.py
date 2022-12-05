@@ -84,9 +84,10 @@ class Display:
                 x = pmtenum.xextra.values[0]
                 y = pmtenum.yextra.values[0]
             first = list(pmtenum.head(1)['hits'].values[0].items())
-            if self.scale=='Log':
-                first = list(({ k : (np.log10(v) if v != 0. else 2)\
+            if self.scale == 'Log':
+                first = list(({ k : (np.log10(v) if v > 0. else 1e-4)\
                         for k,v in pmtenum.head(1)['hits'].values[0].items()}).items())
+
             pmtenum = pd.DataFrame(first,columns=['PMTi','hits'])
             pmtenum['positionij']=len(pmtenum)*[ind]
             if 'xextra' and 'yextra' in pmtenum.columns:
