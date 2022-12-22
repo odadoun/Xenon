@@ -39,11 +39,9 @@ class Display:
                    match_aspect=True)
         self.fig.axis.visible = False
         self.fig.grid.visible = False
-        self.colormap = LinearColorMapper(palette = 'Viridis256',low=0,high=50)
-        if scale=='Log':
-            self.colormap = LogColorMapper(palette = 'Viridis256',low=1e-4,high=50)
         if scale not in ['Log','Linear']:
             print(" What do you mean exactly by " + scale + " ?")
+        self.scale = scale
         self.colorbardrawn = False
 
     def drawTPCradius(self):
@@ -65,16 +63,28 @@ class Display:
         pmtpd = pmtpd.rename(columns={'i':"PMTi"})
         return pmtpd
 
-    def placePMT(self,pmtenum = None, i = None, color = None):
+    def placePMT(self,pmtenum = None, position = 'topbottom',i = None, color = None):
         '''
-            Place the PMT on the bokeh figure
+            Place the PMT on the bokeh figure and the colormap associated
             xdisplayed is a meaningless variable - use only for the display
             return a bokeh figure and a ColumnDataSource (Bokeh format)
         '''
         self.drawTPCradius()
         pmttmp = self.positionPMT().set_index('PMTi')
+
+        if position not in ['topbottom','top','bottom']:
+            print(position, 'value not present in orignal csv pmt file, please have look !')
+        else:
+            if position != 'topbottom':
+                pmttmp=pmttmp.loc[pmttmp.array==position]
+
         pmttmp['xdisplayed'] = pmttmp['x']
-        pmttmp.loc[pmttmp.index>252,'xdisplayed'] = pmttmp['xdisplayed']+self.PMTshiftupdown
+        if position == 'topbottom':
+            pmttmp.loc[pmttmp.index>252,'xdisplayed'] = pmttmp['xdisplayed']+self.PMTshiftupdown
+
+        if position == 'bottom':
+            pmttmp.loc[:,'xdisplayed'] = pmttmp['xdisplayed']+self.PMTshiftupdown
+
         if pmtenum is None:
              pmtenum  = pd.DataFrame()
         if not pmtenum.empty:
@@ -89,22 +99,33 @@ class Display:
             if 'xextra' and 'yextra' in pmtenum.columns:
                 pmtenum['xextra'] = len(pmtenum)*[x]
                 pmtenum['yextra'] = len(pmtenum)*[y]
-            self.colormap.low = pmtenum.hits.min()
-            self.colormap.high = pmtenum.hits.max()
 
             pmttmp = pmttmp.drop(columns=['color'])
             pmttmp = pd.merge(pmttmp,pmtenum, on='PMTi')
+
+        ticker = BasicTicker()
+        colormap = LinearColorMapper(palette = 'Viridis256',low=0,high=50)
+        if self.scale=='Log':
+            colormap = LogColorMapper(palette = 'Viridis256',low=1e-4,high=50)
+            ticker = LogTicker()
+
         if 'hits' in pmttmp.columns:
-            color = transform('hits', self.colormap)
+            color = transform('hits', colormap)
         else:
             pmttmp['hits'] = -1 # by default no hits
             pmttmp['color'] = 'grey'
             color = 'color'
+
+        colormap.low  = pmttmp.hits.min()
+        colormap.high = pmttmp.hits.max()
+
+        color_bar = ColorBar(color_mapper = colormap, label_standoff = 14, location = (0,0), ticker = ticker)
+
         src = ColumnDataSource(pmttmp)
         circ = self.fig.circle(x='xdisplayed', y='y', color = color, radius=self.Rpmt, alpha=1,source=src,line_color='black')
         hover_tool = HoverTool(tooltips=[("index", "$index"), ("(x, y)", "(@x, @y)"),("hits","@hits")],renderers=[circ])
         self.fig.add_tools(hover_tool)
-        return src
+        return src, color_bar
 
     def showPMT(self, pmtdico = None):
         '''
@@ -119,7 +140,7 @@ class Display:
             draw = self.placePMT()
         pmt_slider = Slider(start=0, end=self.position.PMTi.max(), value=1, step=1, title="PMT",name='sliderpmt')
         pmt_input = TextInput(value="", title="PMT n°:",name='textpmt')
-        src = draw
+        src = draw[0]
         thecallback = CustomJS(args=dict(source=src, slidervalue=pmt_slider,textvalue=pmt_input),
         code = """
             const data = source.data;
@@ -149,18 +170,15 @@ class Display:
             Here the callback is defined (JS stuff for HMTL slider interaction)
             return a bokeh figure
         '''
-        ticker = BasicTicker()
-        if self.scale=='Log':
-            ticker = LogTicker()
-        color_bar = ColorBar(color_mapper = self.colormap, label_standoff = 14,\
-                                location = (0,0), ticker = ticker)
         if pmtpd is None:
             show(self.fig)
         else:
             src = ColumnDataSource(pmtpd)
             pmtdisplayed = pmtpd.head(1)
-            draw = self.placePMT(pmtdisplayed)
-            srcdisplayed = draw
+
+            drawtop = self.placePMT(pmtdisplayed,'top')
+            drawbottom = self.placePMT(pmtdisplayed,'bottom')
+
             layout = self.fig
             srcposition = ColumnDataSource()
             extra = 'notused'
@@ -171,8 +189,8 @@ class Display:
                 extra = 'extra'
             if pmtpd.index.min() != pmtpd.index.max():
                 ind_slider = Slider(start=pmtpd.index.min(), end=pmtpd.index.max(), value=pmtpd.index.min(), step=1, title="i")
-                thecallback = CustomJS(args=dict(source = src, sourcedis = srcdisplayed,
-                ind = ind_slider, mappy = color_bar, srcpos = srcposition, cursorposition = extra),
+                thecallback = CustomJS(args=dict(source = src, sourcedis_top =  drawtop[0], sourcedis_bottom = drawbottom[0],
+                ind = ind_slider, mappy_top = drawtop[1], mappy_bottom = drawbottom[1], srcpos = srcposition, cursorposition = extra),
                 code = """
                     var datain = source.data;
                     var hitsin = datain['hits'];
@@ -180,15 +198,24 @@ class Display:
                     var xin = datain['xextra'];
                     var yin = datain['yextra'];
                     }
-                    var newhits = [];
-                    var newpmti = [];
-                    var dataout  = sourcedis.data;
-                    newhits = dataout['hits'];
-                    newpmti = dataout['PMTi'];
+                    var newhitstop = [];
+                    var newpmtitop = [];
+                    var dataouttop  = sourcedis_top.data;
+                    newhitstop= dataouttop['hits'];
+                    newpmtitop = dataouttop['PMTi'];
+                    var lowtop = mappy_top.low;
+                    var hightop = mappy_top.high;
+
+                    var newhitsbottom =[];
+                    var newpmtibottom = [];
+                    var dataoutbottom  = sourcedis_bottom.data;
+                    newhitsbottom= dataoutbottom['hits'];
+                    newpmtibottom = dataoutbottom['PMTi'];
+                    var lowbottom = mappy_bottom.low;
+                    var highbottom = mappy_bottom.high;
+
                     var position_index = ind.value;
                     var dic_hits = hitsin[position_index-ind.start];
-                    var low = mappy.low;
-                    var high = mappy.high;
 
                     var pos = srcpos.data;
                     if(cursorposition === 'extra'){
@@ -198,17 +225,26 @@ class Display:
                         y[0] = yin[position_index-ind.start];
                     }
                     for(var key in dic_hits) {
-                        newhits[key] = dic_hits[key];
-                        mappy.color_mapper.low = Math.min.apply(Math,newhits);
-                        mappy.color_mapper.high = Math.max.apply(Math,newhits);
+                        if(parseInt(key)<=252) newhitstop[key] = dic_hits[key];
+                        else  newhitsbottom[key-253] = dic_hits[key];
                     }
-                    sourcedis.change.emit();
+
+                    mappy_top.color_mapper.low = Math.min.apply(Math,newhitstop);
+                    mappy_top.color_mapper.high = Math.max.apply(Math,newhitstop);
+                    mappy_bottom.color_mapper.low = Math.min.apply(Math,newhitsbottom);
+                    mappy_bottom.color_mapper.high = Math.max.apply(Math,newhitsbottom);
+
+                    console.log(newhitstop);
+                    console.log(newhitsbottom);
+                    sourcedis_top.change.emit();
+                    sourcedis_bottom.change.emit();
                     srcpos.change.emit();
                 """)
                 ind_slider.js_on_change('value', thecallback)
                 if not self.colorbardrawn: # avoid multiple colorbar
                     self.fig.plot_width=700
-                    self.fig.add_layout(color_bar, 'left')
+                    self.fig.add_layout(drawtop[1], 'left')
+                    self.fig.add_layout(drawbottom[1], 'right')
                     self.colorbardrawn = True
                 layout = column(self.fig,ind_slider)
             show(layout)
