@@ -12,7 +12,7 @@ from bokeh.io import show, output_notebook
 from bokeh.models import CustomJS, Slider
 from bokeh.models.widgets import TextInput
 from bokeh.models import Range1d
-from bokeh.models import HoverTool, ColorBar, LinearColorMapper, BasicTicker, LogColorMapper, LogTicker
+from bokeh.models import HoverTool, ColorBar, LinearColorMapper, BasicTicker, LogColorMapper, LogTicker,Ellipse
 from bokeh.transform import transform
 from bokeh.palettes import Spectral5, Viridis256
 import copy
@@ -27,15 +27,16 @@ class Display:
         '''
         self.scale = scale
         self.position = self.positionPMT()
-        offset = 10
+
         self.Rpmt = 3*2.54/2 #3" diameter
-        mini,maxi = self.position.x.min()-self.Rpmt - offset,\
-                    self.position.x.max()+self.Rpmt + offset
-        self.Rtpc = 66.4
-        self.PMTshiftupdown = 150
-        self.width, self.height=600, 300
-        self.fig = figure(width=self.width, height=self.height,
-                   x_range=[mini,maxi+self.PMTshiftupdown],y_range=[mini,maxi],
+        self.Rtpc = 66.2
+        self.offset = 4*self.Rpmt
+        xmini,xmaxi = -2*self.Rtpc-self.Rpmt,2*self.Rtpc+self.Rpmt+self.offset
+        ymini,ymaxi = -self.Rtpc-self.Rpmt,self.Rtpc+self.Rpmt
+
+        self.width, self.height = 630, 300
+        self.fig = figure(width = self.width, height = self.height,
+                   x_range = [xmini,xmaxi], y_range = [ymini,ymaxi],
                    match_aspect=True)
         self.fig.axis.visible = False
         self.fig.grid.visible = False
@@ -48,8 +49,12 @@ class Display:
         '''
             Draw circle of Rtpc radius which represent the TPC radius delimation
         '''
-        self.fig.circle(x=0, y=0, color=None,radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3)
-        self.fig.circle(x=self.PMTshiftupdown, y=0, color=None,radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3)
+        #self.fig.circle(x = -self.Rtpc, y=0, color=None, radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3,radius_dimension='max')
+        #self.fig.circle(x = self.Rtpc, y=0, color=None, radius=self.Rtpc, alpha=0.5,line_color='red',line_width=3,radius_dimension='max')
+        glyph = Ellipse(x=-self.Rtpc, y=0, width=2*self.Rtpc, height=2*self.Rtpc, angle=0, fill_color=None,line_color='red',line_width=3)
+        self.fig.add_glyph(glyph)
+        glyph = Ellipse(x=self.Rtpc+self.offset, y=0, width=2*self.Rtpc, height=2*self.Rtpc, angle=0, fill_color=None,line_color='red',line_width=3)
+        self.fig.add_glyph(glyph)
         return self.fig
 
     def positionPMT(self):
@@ -79,11 +84,13 @@ class Display:
                 pmttmp=pmttmp.loc[pmttmp.array==position]
 
         pmttmp['xdisplayed'] = pmttmp['x']
-        if position == 'topbottom':
-            pmttmp.loc[pmttmp.index>252,'xdisplayed'] = pmttmp['xdisplayed']+self.PMTshiftupdown
+        #if position == 'topbottom':
+        #    pmttmp.loc[pmttmp.index>252,'xdisplayed'] = pmttmp['xdisplayed']+self.Rtpc
 
         if position == 'bottom':
-            pmttmp.loc[:,'xdisplayed'] = pmttmp['xdisplayed']+self.PMTshiftupdown
+            pmttmp.loc[:,'xdisplayed'] = pmttmp['xdisplayed']+self.Rtpc+self.offset
+        if position == 'top':
+            pmttmp.loc[:,'xdisplayed'] = pmttmp['xdisplayed']-self.Rtpc
 
         if pmtenum is None:
              pmtenum  = pd.DataFrame()
@@ -104,10 +111,13 @@ class Display:
             pmttmp = pd.merge(pmttmp,pmtenum, on='PMTi')
 
         ticker = BasicTicker()
-        colormap = LinearColorMapper(palette = 'Viridis256',low=0,high=50)
-        if self.scale=='Log':
-            colormap = LogColorMapper(palette = 'Viridis256',low=1e-4,high=50)
-            ticker = LogTicker()
+        palette = Viridis256
+
+        colormap = LinearColorMapper(palette = palette,low=0,high=50)
+        if position == 'top':
+            if self.scale=='Log':
+                colormap = LogColorMapper(palette = palette ,low=1e-4,high=50)
+                ticker = LogTicker()
 
         if 'hits' in pmttmp.columns:
             color = transform('hits', colormap)
@@ -118,11 +128,10 @@ class Display:
 
         colormap.low  = pmttmp.hits.min()
         colormap.high = pmttmp.hits.max()
-
-        color_bar = ColorBar(color_mapper = colormap, label_standoff = 14, location = (0,0), ticker = ticker)
+        color_bar = ColorBar(color_mapper = colormap, label_standoff = 10, location = (0,0), ticker = ticker)
 
         src = ColumnDataSource(pmttmp)
-        circ = self.fig.circle(x='xdisplayed', y='y', color = color, radius=self.Rpmt, alpha=1,source=src,line_color='black')
+        circ = self.fig.circle(x='xdisplayed', y='y', color = color, radius=self.Rpmt, alpha=1,source=src,line_color='black')#,radius_dimension='max')
         hover_tool = HoverTool(tooltips=[("index", "$index"), ("(x, y)", "(@x, @y)"),("hits","@hits")],renderers=[circ])
         self.fig.add_tools(hover_tool)
         return src, color_bar
@@ -183,14 +192,15 @@ class Display:
             srcposition = ColumnDataSource()
             extra = 'notused'
             if 'xextra' and 'yextra' in pmtpd.columns:
-                srcposition = ColumnDataSource(data={'xextra':[pmtdisplayed['xextra'].values[0]],\
+                srcposition = ColumnDataSource(data={'xextra':[pmtdisplayed['xextra'].values[0]-self.Rtpc],\
                                                  'yextra':[pmtdisplayed['yextra'].values[0]]})
                 self.fig.cross(x='xextra', y='yextra',size=20, color='red',source=srcposition,line_width=2)
                 extra = 'extra'
             if pmtpd.index.min() != pmtpd.index.max():
                 ind_slider = Slider(start=pmtpd.index.min(), end=pmtpd.index.max(), value=pmtpd.index.min(), step=1, title="i")
                 thecallback = CustomJS(args=dict(source = src, sourcedis_top =  drawtop[0], sourcedis_bottom = drawbottom[0],
-                ind = ind_slider, mappy_top = drawtop[1], mappy_bottom = drawbottom[1], srcpos = srcposition, cursorposition = extra),
+                ind = ind_slider, mappy_top = drawtop[1], mappy_bottom = drawbottom[1], srcpos = srcposition,
+                cursorposition = extra, shiftcursor = self.Rtpc),
                 code = """
                     var datain = source.data;
                     var hitsin = datain['hits'];
@@ -221,7 +231,7 @@ class Display:
                     if(cursorposition === 'extra'){
                         var x = pos['xextra'];
                         var y = pos['yextra'];
-                        x[0] = xin[position_index-ind.start];
+                        x[0] = xin[position_index-ind.start]-shiftcursor;
                         y[0] = yin[position_index-ind.start];
                     }
                     for(var key in dic_hits) {
@@ -234,15 +244,14 @@ class Display:
                     mappy_bottom.color_mapper.low = Math.min.apply(Math,newhitsbottom);
                     mappy_bottom.color_mapper.high = Math.max.apply(Math,newhitsbottom);
 
-                    console.log(newhitstop);
-                    console.log(newhitsbottom);
                     sourcedis_top.change.emit();
                     sourcedis_bottom.change.emit();
                     srcpos.change.emit();
                 """)
                 ind_slider.js_on_change('value', thecallback)
                 if not self.colorbardrawn: # avoid multiple colorbar
-                    self.fig.plot_width=700
+                    #self.fig.plot_width=650
+                    #self.fig.plot_height=400
                     self.fig.add_layout(drawtop[1], 'left')
                     self.fig.add_layout(drawbottom[1], 'right')
                     self.colorbardrawn = True
